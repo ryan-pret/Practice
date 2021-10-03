@@ -22,7 +22,9 @@ To run your application:
 ```
 
 Lol to actually run this application:
+```
 ./mvn clean compile exec:java -Dvertx.logger-delegate-factory-class-name=io.vertx.core.logging.Log4j2LogDelegateFactory
+```
 
 == Help
 
