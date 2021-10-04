@@ -22,7 +22,7 @@
     <vertx.version>4.1.4</vertx.version>
     <junit-jupiter.version>5.7.0</junit-jupiter.version>
 
-    <main.verticle>com.ACI.Vertx.example.VertxProject.SensorVerticle</main.verticle>
+    <main.verticle>com.ACI.Vertx.example.VertxProject.DBVerticle</main.verticle>
     <launcher.class>io.vertx.core.Launcher</launcher.class>
   </properties>
 
