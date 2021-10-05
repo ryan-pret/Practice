@@ -1,5 +1,8 @@
 package com.ACI.Vertx.example.VertxProject;
 
+import java.text.SimpleDateFormat;
+import java.util.Calendar;
+import java.util.Date;
 import java.util.UUID;
 
 import com.hazelcast.internal.json.Json;
@@ -113,7 +116,15 @@ public class DBVerticle extends AbstractVerticle {
 
         logger.info("Client in DB");
 
-        String query = "INSERT INTO \"Voucher\" (voucher_number, client_id, voucher_amount, was_redeemed, voucher_expiry) VALUES ('"+uuid+"', 1, '"+voucher_amount+"', false, '2021-01-01')";
+        // Get date
+        Calendar calendar = Calendar.getInstance();
+        calendar.add(Calendar.DATE, 30);
+        Date date = calendar.getTime();
+        SimpleDateFormat formatter = new SimpleDateFormat("yyyy-MM-dd");
+        String formatDate = formatter.format(date);
+        logger.info(formatDate);
+        
+        String query = "INSERT INTO \"Voucher\" (voucher_number, client_id, voucher_amount, was_redeemed, voucher_expiry) VALUES ('"+uuid+"', '"+client_id+"', '"+voucher_amount+"', false, '"+formatDate+"')";
 
         pgPool.preparedQuery(query)
             .execute()
