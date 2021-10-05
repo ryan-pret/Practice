@@ -9,6 +9,7 @@ import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.Router;
 import io.vertx.ext.web.RoutingContext;
+import io.vertx.ext.web.handler.BodyHandler;
 import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.pgclient.PgPool;
 import io.vertx.sqlclient.PoolOptions;
@@ -36,10 +37,12 @@ public class DBVerticle extends AbstractVerticle {
 
         // Setup router
         Router router = Router.router(vertx);
+        router.route().handler(BodyHandler.create());
         // Setup API endpoints
         router.get("/all").handler(this::getAllData);
-        router.post("/create/:cell_num").handler(this::createRequest);
+        router.post("/requestAirtime").handler(this::createRequest);
         router.get("/get/:number").handler(this::getnumVoucher);
+
 
         // Create HTTPServer for CRUD routes
         vertx.createHttpServer()
@@ -52,14 +55,24 @@ public class DBVerticle extends AbstractVerticle {
             .onFailure(startPromise::fail);
     }
 
+    // {"phone_number": "<number>",
+    // "card_number": "<card_number>", 
+    // "cvv_num": "<cvvnum>",
+    // "voucher_amount": "<voucher_amount>",
+    // "expiry_date": "<expiary_date>"
+    // }
+    private void createRequest(RoutingContext context) {
+
+    }
+
     /**
      * Retrieve user's vouchers from phone number
      * @param context used to get information from the API GET request
      */
     private void getnumVoucher(RoutingContext context) {
-        logger.info("Requesting all vouchers from cellphone number $1");
-        String query = "SELECT voucher_number, voucher_amount, was_redeemed, voucher_expiry FROM \"Voucher\" WHERE customer_id IN (SELECT customer_id FROM \"MobileNumbers\" WHERE phone_number = $1)";
         String phone_numer = context.request().getParam("number");
+        logger.info("Requesting all vouchers from cellphone number " + phone_numer);
+        String query = "SELECT voucher_number, voucher_amount, was_redeemed, voucher_expiry FROM \"Voucher\" WHERE customer_id IN (SELECT customer_id FROM \"MobileNumbers\" WHERE phone_number = $1)";
         pgPool.preparedQuery(query)
             .execute(Tuple.of(Integer.parseInt(phone_numer)))
             .onSuccess(rows -> {
@@ -75,18 +88,13 @@ public class DBVerticle extends AbstractVerticle {
                 }
                 context.response()
                     .putHeader("Content-Type", "application/json")
+                    .setStatusCode(200)
                     .end(new JsonObject().put("data", array).encode());
             })
             .onFailure(failure -> {
                 logger.error("Query not executed for getAllData()", failure);
                 context.fail(500);
             });
-    }
-
-    // User creates a request for airtime
-    private void createRequest(RoutingContext context) {
-        logger.info("Requesting data for cellphone number $1");
-        // String query = "INSERT "
     }
 
     private void getAllData(RoutingContext context) {
@@ -107,6 +115,7 @@ public class DBVerticle extends AbstractVerticle {
                 }
                 context.response()
                     .putHeader("Content-Type", "application/json")
+                    .setStatusCode(200)
                     .end(new JsonObject().put("data", array).encode());
             })
             .onFailure(failure -> {
