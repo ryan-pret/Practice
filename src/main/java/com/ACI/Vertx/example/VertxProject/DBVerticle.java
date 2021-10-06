@@ -31,7 +31,6 @@ public class DBVerticle extends AbstractVerticle {
     private static final int DBPort = 5432;
     private static final int HTTPport = 8080;
     private PgPool pgPool;
-    private final String uuid = UUID.randomUUID().toString();
 
     @Override
     public void start(Promise<Void> startPromise) throws Exception {
@@ -75,6 +74,7 @@ public class DBVerticle extends AbstractVerticle {
     // "expiry_date": "<expiary_date>"
     // }
     private void createRequest(RoutingContext context) {
+        String uuid = UUID.randomUUID().toString();
         // Get body as Json
         JsonObject body = context.getBodyAsJson();
         String phone_number = body.getString("phone_number");
@@ -99,7 +99,7 @@ public class DBVerticle extends AbstractVerticle {
             // String getNumber = response.getJsonObject(0).encode();
             logger.info("Phone number ======== " +phone_number);
             if (ar.succeeded()) {
-                logger.info("The request successfuly went through nani the fuck?");
+                logger.info("The request successfuly went through nani?");
                 // if (getNumber.equals("")) {
                 //     logger.info("No number in DB");
                 //     // Insert client into DB
