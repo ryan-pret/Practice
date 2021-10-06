@@ -82,9 +82,10 @@ public class DBVerticle extends AbstractVerticle {
         String cvv_num = body.getString("cvv_num");
         String voucher_amount = body.getString("voucher_amount");
         String expiry_date = body.getString("expiry_date");
+        String client_id = body.getString("client_id");
         // Need to figure this out?
         // Why on earth is cliend_id not in scope
-        int client_id = 1;
+        // int client_id = 1;
         logger.info(phone_number + " "  + card_number + " " + cvv_num + " "
         + voucher_amount + " " + expiry_date);
         
@@ -95,7 +96,7 @@ public class DBVerticle extends AbstractVerticle {
             logger.info(response.encode());
 
             // Get's object
-            String getNumber = response.getJsonObject(0).encode();
+            // String getNumber = response.getJsonObject(0).encode();
             logger.info("Phone number ======== " +phone_number);
             if (ar.succeeded()) {
                 logger.info("The request successfuly went through nani the fuck?");
