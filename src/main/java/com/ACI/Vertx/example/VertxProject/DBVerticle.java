@@ -31,7 +31,7 @@ public class DBVerticle extends AbstractVerticle {
     private static final int DBPort = 5432;
     private static final int HTTPport = 8080;
     private PgPool pgPool;
-    private static String uuid = UUID.randomUUID().toString();
+    private final String uuid = UUID.randomUUID().toString();
 
     @Override
     public void start(Promise<Void> startPromise) throws Exception {
