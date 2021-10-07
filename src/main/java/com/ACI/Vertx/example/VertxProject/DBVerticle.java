@@ -4,9 +4,6 @@ import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.UUID;
-
-import com.hazelcast.internal.json.Json;
-
 import io.vertx.core.AbstractVerticle;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
@@ -16,9 +13,9 @@ import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.Router;
 import io.vertx.ext.web.RoutingContext;
-import io.vertx.ext.web.client.WebClient;
-import io.vertx.ext.web.client.WebClientOptions;
-import io.vertx.ext.web.codec.BodyCodec;
+// import io.vertx.ext.web.client.WebClient;
+// import io.vertx.ext.web.client.WebClientOptions;
+// import io.vertx.ext.web.codec.BodyCodec;
 import io.vertx.ext.web.handler.BodyHandler;
 import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.pgclient.PgPool;
@@ -51,12 +48,20 @@ public class DBVerticle extends AbstractVerticle {
         router.route().handler(BodyHandler.create());
 
         // Setup API endpoints
+        // Add voucher to DB return uuid
         router.post("/requestAirtime").handler(this::createRequest);
+        // return all voucher for user(rename ?)
         router.get("/get/:number").handler(this::getnumVoucher);
+        // get client details
         router.get("/getDetails/:details").handler(this::getdetails);
+        // POST request add card
         router.post("/postCard").handler(this::addCard);
+        // Print all available routes
         router.get("/help").handler(this::displayRoutes);
-
+        // POST add Client
+        router.post("/addclient").handler(this::addClient);
+        // Get for both client details and card details of client
+        router.get("/getcd/:client_id").handler(this::getCD);
 
         // Create HTTPServer for CRUD routes
         vertx.createHttpServer()
@@ -69,48 +74,76 @@ public class DBVerticle extends AbstractVerticle {
             .onFailure(startPromise::fail);
     }
 
-    // {"phone_number": "<number>",
-    // "card_number": "<card_number>", 
-    // "cvv_num": "<cvvnum>",
-    // "voucher_amount": "<voucher_amount>",
-    // "expiry_date": "<expiary_date>"
-    // }
+    /**
+     * Gets both client details and card details, returns json array containing object
+     * @param context response page
+     */
+    private void getCD(RoutingContext context) {
+        String selectCD = "SELECT \"Clients\".client_id, first_names, last_names, title, card_number, card_expiry, card_cvv FROM \"Clients\", \"CardDetails\" WHERE \"Clients\".client_id = $1";
 
-    // request airtime
-    private void createRequest(RoutingContext context) {
-        // Get body as Json
-        JsonObject body = context.getBodyAsJson();
-        String phone_number = body.getString("phone_number");
-        String card_number = body.getString("card_number");
-        String cvv_num = body.getString("cvv_num");
-        String voucher_amount = body.getString("voucher_amount");
-        String expiry_date = body.getString("expiry_date");
-        String client_id = body.getString("client_id");
-        // Need to figure this out?
-        // Why on earth is cliend_id not in scope
-        // int client_id = 1;
-        logger.info(phone_number + " "  + card_number + " " + cvv_num + " "
-        + voucher_amount + " " + expiry_date);
-        
-        WebClient client = WebClient.create(vertx, new WebClientOptions().setDefaultPort(8080).setDefaultHost("127.0.0.1"));
-        
-        client.get("/getdetails/" + phone_number).as(BodyCodec.string()).send(ar -> {
-            JsonArray response = new JsonObject(ar.result().body()).getJsonArray("data");
-            logger.info(response.encode());
+        // String client_id = context.request().getParam("client_id");
+        int client_id = Integer.parseInt(context.request().getParam("client_id"));
 
-            // Get's object
-            // String getNumber = response.getJsonObject(0).encode();
-            logger.info("Phone number ======== " +phone_number);
-            if (ar.succeeded()) {
-                logger.info("The request successfuly went through nani the fuck?");
-                // if (getNumber.equals("")) {
-                //     logger.info("No number in DB");
-                //     // Insert client into DB
-                // }
-            } else {
-                ar.cause().printStackTrace();
-            }
+        pgPool.preparedQuery(selectCD)
+            .execute(Tuple.of(client_id))
+            .onSuccess(rows -> {
+                logger.info("Successfully queried DB");
+                JsonArray array = new JsonArray();
+                for (Row row : rows) {
+                    array.add(new JsonObject()
+                        .put("client_id", row.getInteger("client_id").toString())
+                        .put("first_name", row.getString("first_names"))
+                        .put("last_name", row.getString("last_names"))
+                        .put("title", row.getString("title"))
+                        .put("card_number", row.getString("card_number"))
+                        .put("card_expiry", row.getString("card_expiry"))
+                        .put("card_cvv", row.getString("card_cvv"))
+                    );
+                }
+                context.response()
+                    .putHeader("Content-Type", "application/json")
+                    .end(new JsonObject().put("data", array).encode());
+            })
+            .onFailure(failure -> {
+                logger.error("Query not executed for getCD()", failure);
+                context.fail(500);
         });
+    }
+
+    /**
+     * Adds a client into the database and returns a JSON on successful entry
+     * @param context response page
+     */
+    private void addClient(RoutingContext context) {
+        JsonObject body = context.getBodyAsJson();
+        String title = body.getString("title");
+        String first_name = body.getString("first_name");
+        String last_name = body.getString("last_name");
+
+        String insertClient = "INSERT INTO \"Clients\" (first_names, last_names, title) VALUES ('"+first_name+"', '"+last_name+"', '"+title+"')";
+
+        pgPool.preparedQuery(insertClient)
+            .execute()
+            .onSuccess(rows -> {
+                context.response()
+                    .putHeader("Content-Type", "application/json")
+                    .setStatusCode(200)
+                    .end("Inserted client successfully");
+            })
+            .onFailure(failure -> {
+                logger.error("Query not executed for addClient()", failure);
+                context.fail(500);
+        });
+    }
+
+    /**
+     * Creates an airtime voucher and adds it to the DB, returns the uuid as JSON response on success
+     * @param context response page
+     */
+    private void createRequest(RoutingContext context) {
+        JsonObject body = context.getBodyAsJson();
+        String voucher_amount = body.getString("voucher_amount");
+        String client_id = body.getString("client_id");
 
         // Get date
         Calendar calendar = Calendar.getInstance();
@@ -119,8 +152,6 @@ public class DBVerticle extends AbstractVerticle {
         SimpleDateFormat formatter = new SimpleDateFormat("yyyy-MM-dd");
         String formatDate = formatter.format(date);
         logger.info(formatDate);
-
-        // Insert voucher into Voucher DB
 
         logger.info("Client in DB");
         
@@ -132,19 +163,19 @@ public class DBVerticle extends AbstractVerticle {
                 context.response()
                     .putHeader("Content-Type", "application/json")
                     .setStatusCode(200)
-                    .end("200");
+                    .end(new JsonObject().put("uuid", uuid).encode());
             })
             .onFailure(failure -> {
-                logger.error("Query not executed for getAllData()", failure);
+                logger.error("Query not executed for createRequest()", failure);
                 context.fail(500);
-            });
-        
-        // context.response().end(voucher_amount);
+        });
     }
 
-    // Needs to be fully tested! FIXME
+    /**
+     * Add card to DB, return JSON message on success
+     * @param context response page
+     */
     private void addCard(RoutingContext context) {
-        
         JsonObject body = context.getBodyAsJson();
         String card_number = body.getString("card_number");
         String cvv_num = body.getString("cvv_num");
@@ -173,11 +204,15 @@ public class DBVerticle extends AbstractVerticle {
                     .end("200");
             })
             .onFailure(failure -> {
-                logger.error("Query not executed for getAllData()", failure);
+                logger.error("Query not executed for addCard()", failure);
                 context.fail(500);
-            });
+        });
     }
 
+    /**
+     * Display all routes avaiable in API as JSON
+     * @param context reponse page
+     */
     private void displayRoutes(RoutingContext context) {
         
         logger.info("List of available routes (change variable values where applicable):\nhttp :8080/getDetails/0721178956\nhttp :8080/getNumber/0721178956\nhttp :8080/requestAirtime phone_number=0721178956 card_number=123456789 cvv_num=077 voucher_amount=450 expiray_date=2021-01-01\nhttp :8080/postCard card_number=123456789 card_expiry=2021-01-01 card_cvv=077 client_id=1 available_balance=10000");
@@ -190,13 +225,11 @@ public class DBVerticle extends AbstractVerticle {
                 JsonArray array = new JsonArray();
                 for (Row row : rows) {
                     array.add(new JsonObject()
-
                         .put("List of available routes (assign values where applicable):", row.getInteger("client_id").toString())
                         .put("http :8080/getDetails/0721178956", row.getInteger("client_id").toString())
                         .put("http :8080/getNumber/0721178956", row.getInteger("client_id").toString())
                         .put("http :8080/requestAirtime phone_number= card_number= cvv_num= voucher_amount= expiray_date=", row.getInteger("client_id").toString())
                         .put("http :8080/postCard card_number= card_expiry= card_cvv= client_id= available_balance=", row.getInteger("client_id").toString())
-                        
                     );
                 }
                 context.response()
@@ -212,6 +245,10 @@ public class DBVerticle extends AbstractVerticle {
 
     }
 
+    /**
+     * Get details of a specific client based on their cellphone number
+     * @param context response page
+     */
     private void getdetails(RoutingContext context) {
         logger.info("Requesting all user details from given cellphone number");
         String query = "SELECT client_id, first_names, last_names, title FROM \"Clients\" WHERE client_id IN (SELECT client_id FROM \"MobileNumbers\" WHERE phone_number = $1)";
@@ -236,7 +273,7 @@ public class DBVerticle extends AbstractVerticle {
                     .end(new JsonObject().put("data", array).encode());
             })
             .onFailure(failure -> {
-                logger.error("Query not executed for getAllData()", failure);
+                logger.error("Query not executed for getDetails()", failure);
                 context.fail(500);
             });
     }
@@ -268,7 +305,7 @@ public class DBVerticle extends AbstractVerticle {
                     .end(new JsonObject().put("data", array).encode());
             })
             .onFailure(failure -> {
-                logger.error("Query not executed for getAllData()", failure);
+                logger.error("Query not executed for getnumVoucher()", failure);
                 context.fail(500);
             });
     }
