@@ -31,6 +31,7 @@ public class DBVerticle extends AbstractVerticle {
     private static final int DBPort = 5432;
     private static final int HTTPport = 8080;
     private PgPool pgPool;
+    private static String uuid = UUID.randomUUID().toString();
 
     @Override
     public void start(Promise<Void> startPromise) throws Exception {
@@ -50,10 +51,11 @@ public class DBVerticle extends AbstractVerticle {
         router.route().handler(BodyHandler.create());
 
         // Setup API endpoints
-        router.get("/all").handler(this::getAllData);
         router.post("/requestAirtime").handler(this::createRequest);
         router.get("/get/:number").handler(this::getnumVoucher);
-        router.get("/getdetails/:details").handler(this::getdetails);
+        router.get("/getDetails/:details").handler(this::getdetails);
+        router.post("/postCard").handler(this::addCard);
+        router.get("/help").handler(this::displayRoutes);
 
 
         // Create HTTPServer for CRUD routes
@@ -73,8 +75,9 @@ public class DBVerticle extends AbstractVerticle {
     // "voucher_amount": "<voucher_amount>",
     // "expiry_date": "<expiary_date>"
     // }
+
+    // request airtime
     private void createRequest(RoutingContext context) {
-        String uuid = UUID.randomUUID().toString();
         // Get body as Json
         JsonObject body = context.getBodyAsJson();
         String phone_number = body.getString("phone_number");
@@ -99,7 +102,7 @@ public class DBVerticle extends AbstractVerticle {
             // String getNumber = response.getJsonObject(0).encode();
             logger.info("Phone number ======== " +phone_number);
             if (ar.succeeded()) {
-                logger.info("The request successfuly went through nani?");
+                logger.info("The request successfuly went through nani the fuck?");
                 // if (getNumber.equals("")) {
                 //     logger.info("No number in DB");
                 //     // Insert client into DB
@@ -109,14 +112,6 @@ public class DBVerticle extends AbstractVerticle {
             }
         });
 
-        /**
-         * TODO: STILL NEED TO ADD CARD INTO CARD DB
-         */
-
-        // Insert voucher into Voucher DB
-
-        logger.info("Client in DB");
-
         // Get date
         Calendar calendar = Calendar.getInstance();
         calendar.add(Calendar.DATE, 30);
@@ -124,6 +119,10 @@ public class DBVerticle extends AbstractVerticle {
         SimpleDateFormat formatter = new SimpleDateFormat("yyyy-MM-dd");
         String formatDate = formatter.format(date);
         logger.info(formatDate);
+
+        // Insert voucher into Voucher DB
+
+        logger.info("Client in DB");
         
         String query = "INSERT INTO \"Voucher\" (voucher_number, client_id, voucher_amount, was_redeemed, voucher_expiry) VALUES ('"+uuid+"', '"+client_id+"', '"+voucher_amount+"', false, '"+formatDate+"')";
 
@@ -141,6 +140,76 @@ public class DBVerticle extends AbstractVerticle {
             });
         
         // context.response().end(voucher_amount);
+    }
+
+    // Needs to be fully tested! FIXME
+    private void addCard(RoutingContext context) {
+        
+        JsonObject body = context.getBodyAsJson();
+        String card_number = body.getString("card_number");
+        String cvv_num = body.getString("cvv_num");
+        String client_id = body.getString("client_id");
+        
+        Calendar calendar = Calendar.getInstance();
+        calendar.add(Calendar.DATE, 30);
+        Date date = calendar.getTime();
+        SimpleDateFormat formatter = new SimpleDateFormat("yyyy-MM-dd");
+        String formatDate = formatter.format(date);
+        logger.info(formatDate);
+        
+        logger.info("Inserting Card Details into Database");
+        
+        int available_balance = 10000; // FIXME hardcoded
+        String card_expiry = formatDate; // FIXME hardcoded
+
+        String queryCard = "INSERT INTO \"CardDetails\" (card_number, card_expiry, card_cvv, client_id, available_balance) VALUES ('"+card_number+"', '"+card_expiry+"', '"+cvv_num+"', '"+client_id+"', '"+available_balance+"')";
+
+        pgPool.preparedQuery(queryCard)
+            .execute()
+            .onSuccess(rows -> {
+                context.response()
+                    .putHeader("Content-Type", "application/json")
+                    .setStatusCode(200)
+                    .end("200");
+            })
+            .onFailure(failure -> {
+                logger.error("Query not executed for getAllData()", failure);
+                context.fail(500);
+            });
+    }
+
+    private void displayRoutes(RoutingContext context) {
+        
+        logger.info("List of available routes (change variable values where applicable):\nhttp :8080/getDetails/0721178956\nhttp :8080/getNumber/0721178956\nhttp :8080/requestAirtime phone_number=0721178956 card_number=123456789 cvv_num=077 voucher_amount=450 expiray_date=2021-01-01\nhttp :8080/postCard card_number=123456789 card_expiry=2021-01-01 card_cvv=077 client_id=1 available_balance=10000");
+        //***************************************************
+        String query = "SELECT client_id, first_names, last_names, title FROM \"Clients\" WHERE client_id IN (SELECT client_id FROM \"MobileNumbers\" WHERE phone_number = $1)";
+        String phone_numer = "0721178956";
+        pgPool.preparedQuery(query)
+            .execute(Tuple.of(phone_numer))
+            .onSuccess(rows -> {
+                JsonArray array = new JsonArray();
+                for (Row row : rows) {
+                    array.add(new JsonObject()
+
+                        .put("List of available routes (assign values where applicable):", row.getInteger("client_id").toString())
+                        .put("http :8080/getDetails/0721178956", row.getInteger("client_id").toString())
+                        .put("http :8080/getNumber/0721178956", row.getInteger("client_id").toString())
+                        .put("http :8080/requestAirtime phone_number= card_number= cvv_num= voucher_amount= expiray_date=", row.getInteger("client_id").toString())
+                        .put("http :8080/postCard card_number= card_expiry= card_cvv= client_id= available_balance=", row.getInteger("client_id").toString())
+                        
+                    );
+                }
+                context.response()
+                    .putHeader("Content-Type", "application/json")
+                    .end(new JsonObject().put("routes", array).encode());
+            })
+            .onFailure(failure -> {
+                context.fail(500);
+            });
+
+        //***************************************************
+        
+
     }
 
     private void getdetails(RoutingContext context) {
@@ -191,33 +260,6 @@ public class DBVerticle extends AbstractVerticle {
                         .put("voucher_amount", row.getInteger("voucher_amount").toString())
                         .put("was_redeemed", row.getBoolean("was_redeemed").toString())
                         .put("voucher_expiry", row.getLocalDate("voucher_expiry").toString())
-                    );
-                }
-                context.response()
-                    .putHeader("Content-Type", "application/json")
-                    .setStatusCode(200)
-                    .end(new JsonObject().put("data", array).encode());
-            })
-            .onFailure(failure -> {
-                logger.error("Query not executed for getAllData()", failure);
-                context.fail(500);
-            });
-    }
-
-    private void getAllData(RoutingContext context) {
-        logger.info("Requesting all data from {" + context.request().remoteAddress() + "}");
-        String query = "SELECT * FROM \"Customers\"";
-        pgPool.preparedQuery(query)
-            .execute()
-            .onSuccess(rows -> {
-                logger.info("Successfully queried DB");
-                JsonArray array = new JsonArray();
-                for (Row row : rows) {
-                    array.add(new JsonObject()
-                        .put("customer_id", row.getInteger("customer_id").toString())
-                        .put("first_names", row.getString("first_names"))
-                        .put("last_names", row.getString("last_names"))
-                        .put("title", row.getString("title"))
                     );
                 }
                 context.response()
