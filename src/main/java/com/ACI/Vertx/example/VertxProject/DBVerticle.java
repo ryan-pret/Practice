@@ -4,6 +4,11 @@ import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.UUID;
+
+// import javax.sql.RowSet;
+
+import com.hazelcast.cp.internal.raft.impl.log.LogEntry;
+
 import io.vertx.core.AbstractVerticle;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
@@ -13,14 +18,12 @@ import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.Router;
 import io.vertx.ext.web.RoutingContext;
-// import io.vertx.ext.web.client.WebClient;
-// import io.vertx.ext.web.client.WebClientOptions;
-// import io.vertx.ext.web.codec.BodyCodec;
 import io.vertx.ext.web.handler.BodyHandler;
 import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.pgclient.PgPool;
 import io.vertx.sqlclient.PoolOptions;
 import io.vertx.sqlclient.Row;
+import io.vertx.sqlclient.RowSet;
 import io.vertx.sqlclient.Tuple;
 
 public class DBVerticle extends AbstractVerticle {
@@ -49,19 +52,23 @@ public class DBVerticle extends AbstractVerticle {
 
         // Setup API endpoints
         // Add voucher to DB return uuid
-        router.post("/requestAirtime").handler(this::createRequest);
-        // return all voucher for user(rename ?)
-        router.get("/get/:number").handler(this::getnumVoucher);
-        // get client details
-        router.get("/getDetails/:details").handler(this::getdetails);
+        router.post("/requestairtime").handler(this::createRequest);
         // POST request add card
-        router.post("/postCard").handler(this::addCard);
-        // Print all available routes
-        router.get("/help").handler(this::displayRoutes);
+        router.post("/postcard").handler(this::addCard);
         // POST add Client
         router.post("/addclient").handler(this::addClient);
+        // POST - Add client phone_number to DB
+        router.post("/addnumber").handler(this::addNumber);
+        // GET Return all voucher for user
+        router.get("/getvoucher/:phone_number").handler(this::getnumVoucher);
+        // get client details
+        router.get("/getdetails/:phone_number").handler(this::getDetails);
+        // Print all available routes
+        router.get("/help").handler(this::displayRoutes);
         // Get for both client details and card details of client
         router.get("/getcd/:client_id").handler(this::getCD);
+        // router.post("/updateclient").handler(this::updateClient);
+        // router.post("updatecard").handler(this::updateCard);
 
         // Create HTTPServer for CRUD routes
         vertx.createHttpServer()
@@ -75,19 +82,43 @@ public class DBVerticle extends AbstractVerticle {
     }
 
     /**
+     * Adds a client's number to the DB
+     * @param context response page
+     */
+    private void addNumber(RoutingContext context) {
+        JsonObject body = context.getBodyAsJson();
+        String phone_number = body.getString("phone_number");
+        String client_id = body.getString("client_id");
+
+        String insertNumber = "INSERT INTO \"MobileNumbers\" (phone_number, client_id) VALUES ('"+phone_number+"', '"+client_id+"')";
+
+        pgPool.preparedQuery(insertNumber)
+        .execute(ar -> {
+            if (ar.succeeded()) {
+                context.response()
+                    .putHeader("Content-Type", "application/json")
+                    .setStatusCode(200)
+                    .end("Number added successfully");
+            } else {
+                ar.cause().getMessage();
+            }
+        });
+
+    }
+
+    /**
      * Gets both client details and card details, returns json array containing object
      * @param context response page
      */
     private void getCD(RoutingContext context) {
         String selectCD = "SELECT \"Clients\".client_id, first_names, last_names, title, card_number, card_expiry, card_cvv FROM \"Clients\", \"CardDetails\" WHERE \"Clients\".client_id = $1";
 
-        // String client_id = context.request().getParam("client_id");
         int client_id = Integer.parseInt(context.request().getParam("client_id"));
 
         pgPool.preparedQuery(selectCD)
             .execute(Tuple.of(client_id))
             .onSuccess(rows -> {
-                logger.info("Successfully queried DB");
+                // logger.info("Successfully queried DB");
                 JsonArray array = new JsonArray();
                 for (Row row : rows) {
                     array.add(new JsonObject()
@@ -120,20 +151,23 @@ public class DBVerticle extends AbstractVerticle {
         String first_name = body.getString("first_name");
         String last_name = body.getString("last_name");
 
-        String insertClient = "INSERT INTO \"Clients\" (first_names, last_names, title) VALUES ('"+first_name+"', '"+last_name+"', '"+title+"')";
+        String insertClient = "INSERT INTO \"Clients\" (first_names, last_names, title) VALUES ('"+first_name+"', '"+last_name+"', '"+title+"') RETURNING client_id";
 
         pgPool.preparedQuery(insertClient)
-            .execute()
-            .onSuccess(rows -> {
-                context.response()
-                    .putHeader("Content-Type", "application/json")
-                    .setStatusCode(200)
-                    .end("Inserted client successfully");
-            })
-            .onFailure(failure -> {
-                logger.error("Query not executed for addClient()", failure);
-                context.fail(500);
-        });
+            .execute(ar -> {
+                if (ar.succeeded()) {
+                    JsonObject obj = new JsonObject();
+                    RowSet<Row> rows = ar.result();
+                    for (Row row: rows) {
+                        obj.put("client_id", row.getInteger("client_id").toString());
+                    }
+                    context.response()
+                        .putHeader("Content-Type", "application/json")
+                        .end(obj.encode());
+                } else {
+                    ar.cause().getMessage();
+                }
+            });
     }
 
     /**
@@ -249,11 +283,11 @@ public class DBVerticle extends AbstractVerticle {
      * Get details of a specific client based on their cellphone number
      * @param context response page
      */
-    private void getdetails(RoutingContext context) {
+    private void getDetails(RoutingContext context) {
         logger.info("Requesting all user details from given cellphone number");
         String query = "SELECT client_id, first_names, last_names, title FROM \"Clients\" WHERE client_id IN (SELECT client_id FROM \"MobileNumbers\" WHERE phone_number = $1)";
         
-        String phone_numer = context.request().getParam("details");
+        String phone_numer = context.request().getParam("phone_number");
         logger.info("Error detector 1");
         pgPool.preparedQuery(query)
             .execute(Tuple.of(phone_numer))
@@ -283,7 +317,7 @@ public class DBVerticle extends AbstractVerticle {
      * @param context used to get information from the API GET request
      */
     private void getnumVoucher(RoutingContext context) {
-        String phone_numer = context.request().getParam("number");
+        String phone_numer = context.request().getParam("phone_number");
         logger.info("Requesting all vouchers from cellphone number " + phone_numer);
         String query = "SELECT voucher_number, voucher_amount, was_redeemed, voucher_expiry FROM \"Voucher\" WHERE client_id IN (SELECT client_id FROM \"MobileNumbers\" WHERE phone_number = $1)";
         pgPool.preparedQuery(query)
