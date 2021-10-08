@@ -4,11 +4,6 @@ import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.UUID;
-
-// import javax.sql.RowSet;
-
-import com.hazelcast.cp.internal.raft.impl.log.LogEntry;
-
 import io.vertx.core.AbstractVerticle;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
@@ -32,6 +27,7 @@ public class DBVerticle extends AbstractVerticle {
     private static final int HTTPport = 8080;
     private PgPool pgPool;
     private static String uuid = UUID.randomUUID().toString();
+    private static Debug debug = new Debug(false);
 
     @Override
     public void start(Promise<Void> startPromise) throws Exception {
@@ -44,7 +40,7 @@ public class DBVerticle extends AbstractVerticle {
             .setPassword("g_2GuI_wytgl7DsAVPJqgDWe3-7h5S_N")
         , new PoolOptions());
 
-        logger.info("Hello I made it past connecting the client");
+        debug.print("Hello I made it past connecting the client");
 
         // Setup router
         Router router = Router.router(vertx);
@@ -59,6 +55,8 @@ public class DBVerticle extends AbstractVerticle {
         router.post("/addclient").handler(this::addClient);
         // POST - Add client phone_number to DB
         router.post("/addnumber").handler(this::addNumber);
+        // POST Update client details
+        router.post("/updateclient").handler(this::updateClient);
         // GET Return all voucher for user
         router.get("/getvoucher/:phone_number").handler(this::getnumVoucher);
         // get client details
@@ -67,7 +65,7 @@ public class DBVerticle extends AbstractVerticle {
         router.get("/help").handler(this::displayRoutes);
         // Get for both client details and card details of client
         router.get("/getcd/:client_id").handler(this::getCD);
-        // router.post("/updateclient").handler(this::updateClient);
+        // POST Update client card details
         // router.post("updatecard").handler(this::updateCard);
 
         // Create HTTPServer for CRUD routes
@@ -75,10 +73,41 @@ public class DBVerticle extends AbstractVerticle {
             .requestHandler(router)
             .listen(HTTPport)
             .onSuccess(ok -> {
-                logger.info("HTTP server started on 127.0.0.1:8080");
+                debug.print("HTTP server started on 127.0.0.1:8080");
                 startPromise.complete();
             })
             .onFailure(startPromise::fail);
+    }
+
+    /**
+     * Update client details
+     * @param context response page
+     */
+    private void updateClient(RoutingContext context) {
+        JsonObject body = context.getBodyAsJson();
+        String title = body.getString("title");
+        String first_name = body.getString("first_name");
+        String last_name = body.getString("last_name");
+        String client_id = body.getString("client_id");
+
+        String updateClient = "UPDATE \"Clients\" SET first_names = '"+first_name+"' last_names = '"+last_name+"', title = '"+title+"' WHERE client_id = '"+client_id+"')";
+
+        pgPool.preparedQuery(updateClient)
+            .execute(ar -> {
+                if (ar.succeeded()) {
+                    JsonObject obj = new JsonObject();
+                    RowSet<Row> rows = ar.result();
+                    for (Row row: rows) {
+                        obj.put("client_id", row.getInteger("client_id").toString());
+                    }
+                    context.response()
+                        .putHeader("Content-Type", "application/json")
+                        .setStatusCode(200)
+                        .end("Client" +obj.getString("client_id") + "updated successfully");
+                } else {
+                    ar.cause().getMessage();
+                }
+            });
     }
 
     /**
@@ -118,7 +147,6 @@ public class DBVerticle extends AbstractVerticle {
         pgPool.preparedQuery(selectCD)
             .execute(Tuple.of(client_id))
             .onSuccess(rows -> {
-                // logger.info("Successfully queried DB");
                 JsonArray array = new JsonArray();
                 for (Row row : rows) {
                     array.add(new JsonObject()
@@ -163,7 +191,7 @@ public class DBVerticle extends AbstractVerticle {
                     }
                     context.response()
                         .putHeader("Content-Type", "application/json")
-                        .end(obj.encode());
+                        .end(obj.getString("client_id"));
                 } else {
                     ar.cause().getMessage();
                 }
@@ -185,9 +213,9 @@ public class DBVerticle extends AbstractVerticle {
         Date date = calendar.getTime();
         SimpleDateFormat formatter = new SimpleDateFormat("yyyy-MM-dd");
         String formatDate = formatter.format(date);
-        logger.info(formatDate);
+        debug.print(formatDate);
 
-        logger.info("Client in DB");
+        debug.print("Client in DB");
         
         String query = "INSERT INTO \"Voucher\" (voucher_number, client_id, voucher_amount, was_redeemed, voucher_expiry) VALUES ('"+uuid+"', '"+client_id+"', '"+voucher_amount+"', false, '"+formatDate+"')";
 
@@ -220,9 +248,9 @@ public class DBVerticle extends AbstractVerticle {
         Date date = calendar.getTime();
         SimpleDateFormat formatter = new SimpleDateFormat("yyyy-MM-dd");
         String formatDate = formatter.format(date);
-        logger.info(formatDate);
+        debug.print(formatDate);
         
-        logger.info("Inserting Card Details into Database");
+        debug.print("Inserting Card Details into Database");
         
         int available_balance = 10000; // FIXME hardcoded
         String card_expiry = formatDate; // FIXME hardcoded
@@ -249,7 +277,7 @@ public class DBVerticle extends AbstractVerticle {
      */
     private void displayRoutes(RoutingContext context) {
         
-        logger.info("List of available routes (change variable values where applicable):\nhttp :8080/getDetails/0721178956\nhttp :8080/getNumber/0721178956\nhttp :8080/requestAirtime phone_number=0721178956 card_number=123456789 cvv_num=077 voucher_amount=450 expiray_date=2021-01-01\nhttp :8080/postCard card_number=123456789 card_expiry=2021-01-01 card_cvv=077 client_id=1 available_balance=10000");
+        debug.print("List of available routes (change variable values where applicable):\nhttp :8080/getDetails/0721178956\nhttp :8080/getNumber/0721178956\nhttp :8080/requestAirtime phone_number=0721178956 card_number=123456789 cvv_num=077 voucher_amount=450 expiray_date=2021-01-01\nhttp :8080/postCard card_number=123456789 card_expiry=2021-01-01 card_cvv=077 client_id=1 available_balance=10000");
         //***************************************************
         String query = "SELECT client_id, first_names, last_names, title FROM \"Clients\" WHERE client_id IN (SELECT client_id FROM \"MobileNumbers\" WHERE phone_number = $1)";
         String phone_numer = "0721178956";
@@ -284,15 +312,15 @@ public class DBVerticle extends AbstractVerticle {
      * @param context response page
      */
     private void getDetails(RoutingContext context) {
-        logger.info("Requesting all user details from given cellphone number");
+        debug.print("Requesting all user details from given cellphone number");
         String query = "SELECT client_id, first_names, last_names, title FROM \"Clients\" WHERE client_id IN (SELECT client_id FROM \"MobileNumbers\" WHERE phone_number = $1)";
         
         String phone_numer = context.request().getParam("phone_number");
-        logger.info("Error detector 1");
+        debug.print("Error detector 1");
         pgPool.preparedQuery(query)
             .execute(Tuple.of(phone_numer))
             .onSuccess(rows -> {
-                logger.info("Successfully queried DB");
+                debug.print("Successfully queried DB");
                 JsonArray array = new JsonArray();
                 for (Row row : rows) {
                     array.add(new JsonObject()
@@ -318,12 +346,12 @@ public class DBVerticle extends AbstractVerticle {
      */
     private void getnumVoucher(RoutingContext context) {
         String phone_numer = context.request().getParam("phone_number");
-        logger.info("Requesting all vouchers from cellphone number " + phone_numer);
+        debug.print("Requesting all vouchers from cellphone number " + phone_numer);
         String query = "SELECT voucher_number, voucher_amount, was_redeemed, voucher_expiry FROM \"Voucher\" WHERE client_id IN (SELECT client_id FROM \"MobileNumbers\" WHERE phone_number = $1)";
         pgPool.preparedQuery(query)
             .execute(Tuple.of(phone_numer))
             .onSuccess(rows -> {
-                logger.info("Successfully queried DB");
+                debug.print("Successfully queried DB");
                 JsonArray array = new JsonArray();
                 for (Row row : rows) {
                     array.add(new JsonObject()
